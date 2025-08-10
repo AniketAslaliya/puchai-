@@ -6,6 +6,7 @@ from typing import Annotated, Optional, Literal, List
 import os, uuid, json
 from datetime import datetime, timedelta
 from dotenv import load_dotenv
+from pymongo import MongoClient
 import random
 
 from fastmcp import FastMCP
@@ -20,6 +21,8 @@ load_dotenv()
 TOKEN = os.environ.get("AUTH_TOKEN", "your_secret_token_here")
 MY_NUMBER = os.environ.get("MY_NUMBER", "919876543210")
 REVIEW_TOKEN = os.environ.get("REVIEW_TOKEN", TOKEN)
+MONGO_URI = os.environ.get("MONGO_URI")
+MONGO_DB = os.environ.get("MONGO_DB", "ecohero")
 
 # --- Auth Provider (matches starter kit behavior) ---
 class SimpleBearerAuthProvider(BearerAuthProvider):
@@ -94,6 +97,9 @@ QUESTS: dict[str, Quest] = {}
 REWARDS: dict[str, Reward] = {}
 SUBMISSIONS: dict[str, Submission] = {}
 
+mongo_client: MongoClient | None = None
+db = None
+
 # --- Utility Functions ---
 def _now() -> str:
     return datetime.utcnow().isoformat()
@@ -115,6 +121,8 @@ def _get_user(puch_user_id: str) -> User:
             created_at=_now()
         )
         USERS[puch_user_id] = user
+        if db:
+            db.users.update_one({"user_id": puch_user_id}, {"$set": user.model_dump()}, upsert=True)
     
     return USERS[puch_user_id]
 
@@ -216,6 +224,8 @@ def _initialize_default_content():
         
         for quest in default_quests:
             QUESTS[quest.quest_id] = quest
+            if db:
+                db.quests.update_one({"quest_id": quest.quest_id}, {"$set": quest.model_dump()}, upsert=True)
     
     if not REWARDS:
         default_rewards = [
@@ -251,6 +261,8 @@ def _initialize_default_content():
         
         for reward in default_rewards:
             REWARDS[reward.reward_id] = reward
+            if db:
+                db.rewards.update_one({"reward_id": reward.reward_id}, {"$set": reward.model_dump()}, upsert=True)
 
 # --- Rich Tool Description model ---
 class RichToolDescription(BaseModel):
@@ -346,6 +358,8 @@ async def submit_proof(
             created_at=_now()
         )
         SUBMISSIONS[submission.submission_id] = submission
+        if db:
+            db.submissions.update_one({"submission_id": submission.submission_id}, {"$set": submission.model_dump()}, upsert=True)
         return [TextContent(type="text", text=f"📥 Submission received! ID: `{submission.submission_id}`. A reviewer will validate it soon.")]
     except McpError:
         raise
@@ -369,6 +383,8 @@ async def review_submission(
         submission.reviewer_id = reviewer_id
         submission.notes = notes
         submission.reviewed_at = _now()
+        if db:
+            db.submissions.update_one({"submission_id": submission.submission_id}, {"$set": submission.model_dump()}, upsert=True)
 
         quest = QUESTS.get(submission.quest_id)
         user = _get_user(submission.user_id)
@@ -382,6 +398,8 @@ async def review_submission(
             if quest.quest_id not in user.quests_completed:
                 user.quests_completed.append(quest.quest_id)
             user.last_quest_date = _now()
+            if db:
+                db.users.update_one({"user_id": user.user_id}, {"$set": user.model_dump()}, upsert=True)
             awarded_text = f" ✅ Awarded {xp_gain} XP for '{quest.title}'."
 
         return [TextContent(type="text", text=f"🧪 Review: {submission.status.upper()} for submission `{submission_id}`.{awarded_text}")]
@@ -400,14 +418,17 @@ async def register_user(
         user.name = name
         
         welcome_message = (
-            f"🎉 **Welcome to Quest World, {name}!** 🎉\n\n"
-            f"🌟 You're now ready to embark on epic adventures!\n"
+            f"🎉 **Welcome to Eco Hero, {name}!** 🌍\n\n"
+            f"Here’s how it works:\n"
+            f"1) Pick a quest (climate, social, or personal).\n"
+            f"2) If it requires proof, use /submit_proof (URL or short text).\n"
+            f"3) A reviewer approves it → you earn XP.\n\n"
+            f"⚡ Daily cap: 15 XP | 🌟 Golden quests: 2x XP | 🔥 Streaks: bonus XP\n\n"
             f"📊 **Your Stats:**\n"
             f"   • Total XP: {user.total_xp} 🏆\n"
             f"   • Daily XP: {user.daily_xp}/15 ⚡\n"
             f"   • Streak: {user.streak_days} days 🔥\n\n"
-            f"🎯 **Ready to start?** Try creating a quest or completing one!\n"
-            f"💡 **Pro tip:** Complete quests daily to build your streak and earn bonus XP!"
+            f"🚀 Try: /list_quests puch_user_id={user.user_id}"
         )
         
         return [TextContent(type="text", text=welcome_message)]
@@ -443,6 +464,8 @@ async def create_quest(
         )
         
         QUESTS[quest_id] = quest
+        if db:
+            db.quests.update_one({"quest_id": quest_id}, {"$set": quest.model_dump()}, upsert=True)
         
         golden_text = "🌟 **GOLDEN QUEST** 🌟" if is_golden else ""
         response = (
@@ -530,6 +553,18 @@ async def complete_quest(
             raise McpError(ErrorData(code=INVALID_PARAMS, message="Quest already completed"))
         
         quest = QUESTS[quest_id]
+        # Require approved proof for manual-verification quests
+        if getattr(quest, "verification_method", "manual") == "manual":
+            if not _has_approved_submission(puch_user_id, quest_id):
+                return [TextContent(
+                    type="text",
+                    text=(
+                        "📝 This quest requires manual verification.\n\n"
+                        "📥 Submit proof first using:\n"
+                        f"   /submit_proof puch_user_id={puch_user_id} quest_id={quest_id} proof_url=<link> (or) proof_text=\"what you did\"\n\n"
+                        "✅ A reviewer will approve it and XP will be awarded automatically."
+                    ),
+                )]
         xp_gain = _calculate_xp_gain(user, quest.xp_reward)
         
         if xp_gain == 0:
@@ -546,6 +581,8 @@ async def complete_quest(
             user.total_xp += xp_gain
             user.quests_completed.append(quest_id)
             user.last_quest_date = _now()
+            if db:
+                db.users.update_one({"user_id": user.user_id}, {"$set": user.model_dump()}, upsert=True)
             
             # Check for new rewards
             new_rewards = []
@@ -682,6 +719,8 @@ async def claim_reward(
         
         # Claim the reward
         reward.given_to.append(puch_user_id)
+        if db:
+            db.rewards.update_one({"reward_id": reward.reward_id}, {"$set": {"given_to": reward.given_to}}, upsert=True)
         
         type_emoji = {"voucher": "🎫", "tshirt": "👕", "sticker": "🏷️", "badge": "🏆"}[reward.reward_type]
         
