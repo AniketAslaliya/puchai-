@@ -19,6 +19,7 @@ from pydantic import Field, BaseModel
 load_dotenv()
 TOKEN = os.environ.get("AUTH_TOKEN", "your_secret_token_here")
 MY_NUMBER = os.environ.get("MY_NUMBER", "919876543210")
+REVIEW_TOKEN = os.environ.get("REVIEW_TOKEN", TOKEN)
 
 # --- Auth Provider (matches starter kit behavior) ---
 class SimpleBearerAuthProvider(BearerAuthProvider):
@@ -64,6 +65,7 @@ class Quest(BaseModel):
     verification_method: Literal["manual", "auto"] = "manual"
     created_by: str  # "admin" or user_id
     is_golden: bool = False
+    program: Optional[str] = None  # e.g., "eco_hero"
     created_at: str
 
 class Reward(BaseModel):
@@ -74,10 +76,23 @@ class Reward(BaseModel):
     given_to: List[str] = []
     created_at: str
 
+class Submission(BaseModel):
+    submission_id: str
+    quest_id: str
+    user_id: str
+    proof_url: Optional[str] = None
+    proof_text: Optional[str] = None
+    status: Literal["pending", "approved", "rejected"] = "pending"
+    reviewer_id: Optional[str] = None
+    notes: Optional[str] = None
+    created_at: str
+    reviewed_at: Optional[str] = None
+
 # --- In-Memory Storage (replace with database in production) ---
 USERS: dict[str, User] = {}
 QUESTS: dict[str, Quest] = {}
 REWARDS: dict[str, Reward] = {}
+SUBMISSIONS: dict[str, Submission] = {}
 
 # --- Utility Functions ---
 def _now() -> str:
@@ -102,6 +117,12 @@ def _get_user(puch_user_id: str) -> User:
         USERS[puch_user_id] = user
     
     return USERS[puch_user_id]
+
+def _has_approved_submission(user_id: str, quest_id: str) -> bool:
+    for submission in SUBMISSIONS.values():
+        if submission.user_id == user_id and submission.quest_id == quest_id and submission.status == "approved":
+            return True
+    return False
 
 def _reset_daily_xp_if_needed(user: User):
     """Reset daily XP if it's a new day"""
@@ -150,6 +171,8 @@ def _initialize_default_content():
                 description="Plant a tree in your community or backyard to help the environment!",
                 xp_reward=5,
                 quest_type="climate",
+                verification_method="manual",
+                program="eco_hero",
                 created_by="admin",
                 created_at=_now()
             ),
@@ -278,6 +301,18 @@ CLAIM_REWARD_DESCRIPTION = RichToolDescription(
     side_effects="Marks reward as claimed for the user"
 )
 
+ECO_SUBMIT_DESCRIPTION = RichToolDescription(
+    description="Submit proof for a quest (Eco Hero program)",
+    use_when="User uploads a link/text as proof of completing an eco/social task",
+    side_effects="Creates a pending submission for review"
+)
+
+ECO_REVIEW_DESCRIPTION = RichToolDescription(
+    description="Review a submission (approve/reject) and award XP",
+    use_when="Admin/reviewer validates user proof for eco/social tasks",
+    side_effects="Awards XP on approval and updates streak"
+)
+
 # --- Tools ---
 
 @mcp.tool
@@ -287,6 +322,73 @@ async def validate() -> str:
 @mcp.tool
 async def health_check() -> str:
     return "🎮 Quest & Rewards MCP Server is running! All systems operational! ⚡"
+
+@mcp.tool(description=ECO_SUBMIT_DESCRIPTION.model_dump_json())
+async def submit_proof(
+    puch_user_id: Annotated[str, Field(description="User ID")],
+    quest_id: Annotated[str, Field(description="Quest ID")],
+    proof_url: Annotated[Optional[str], Field(description="URL to image/video/article")]=None,
+    proof_text: Annotated[Optional[str], Field(description="Short description of the proof")]=None,
+) -> list[TextContent]:
+    try:
+        if quest_id not in QUESTS:
+            raise McpError(ErrorData(code=INVALID_PARAMS, message="Quest not found"))
+        if not proof_url and not proof_text:
+            raise McpError(ErrorData(code=INVALID_PARAMS, message="Provide proof_url or proof_text"))
+        _get_user(puch_user_id)
+        submission = Submission(
+            submission_id=str(uuid.uuid4()),
+            quest_id=quest_id,
+            user_id=puch_user_id,
+            proof_url=proof_url,
+            proof_text=proof_text,
+            status="pending",
+            created_at=_now()
+        )
+        SUBMISSIONS[submission.submission_id] = submission
+        return [TextContent(type="text", text=f"📥 Submission received! ID: `{submission.submission_id}`. A reviewer will validate it soon.")]
+    except McpError:
+        raise
+    except Exception as e:
+        raise McpError(ErrorData(code=INTERNAL_ERROR, message=str(e)))
+
+@mcp.tool(description=ECO_REVIEW_DESCRIPTION.model_dump_json())
+async def review_submission(
+    reviewer_id: Annotated[str, Field(description="Reviewer/Admin ID")],
+    submission_id: Annotated[str, Field(description="Submission ID")],
+    approve: Annotated[bool, Field(description="Approve or reject")],
+    notes: Annotated[Optional[str], Field(description="Optional notes")]=None,
+) -> list[TextContent]:
+    try:
+        if submission_id not in SUBMISSIONS:
+            raise McpError(ErrorData(code=INVALID_PARAMS, message="Submission not found"))
+        submission = SUBMISSIONS[submission_id]
+        if submission.status != "pending":
+            raise McpError(ErrorData(code=INVALID_PARAMS, message="Submission already reviewed"))
+        submission.status = "approved" if approve else "rejected"
+        submission.reviewer_id = reviewer_id
+        submission.notes = notes
+        submission.reviewed_at = _now()
+
+        quest = QUESTS.get(submission.quest_id)
+        user = _get_user(submission.user_id)
+
+        awarded_text = ""
+        if approve and quest:
+            _reset_daily_xp_if_needed(user)
+            xp_gain = _calculate_xp_gain(user, quest.xp_reward)
+            user.daily_xp += xp_gain
+            user.total_xp += xp_gain
+            if quest.quest_id not in user.quests_completed:
+                user.quests_completed.append(quest.quest_id)
+            user.last_quest_date = _now()
+            awarded_text = f" ✅ Awarded {xp_gain} XP for '{quest.title}'."
+
+        return [TextContent(type="text", text=f"🧪 Review: {submission.status.upper()} for submission `{submission_id}`.{awarded_text}")]
+    except McpError:
+        raise
+    except Exception as e:
+        raise McpError(ErrorData(code=INTERNAL_ERROR, message=str(e)))
 
 @mcp.tool(description=REGISTER_USER_DESCRIPTION.model_dump_json())
 async def register_user(
