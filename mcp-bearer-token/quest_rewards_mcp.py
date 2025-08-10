@@ -608,15 +608,17 @@ async def claim_reward(
 
 # --- Run MCP Server ---
 async def main():
-    print("🎮 Starting Quest & Rewards MCP server on http://127.0.0.1:8086")
+    host = os.environ.get("HOST", "0.0.0.0")
+    port = int(os.environ.get("PORT", "8086"))
+    print(f"🎮 Starting Quest & Rewards MCP server on http://{host}:{port}")
     print("🌟 Initializing default quests and rewards...")
     _initialize_default_content()
     print("✅ Default content loaded!")
-    print("🔗 MCP Endpoint: http://localhost:8086/mcp/")
-    print("🌐 For Puch AI: https://90916d1171d8.ngrok-free.app/mcp/")
+    print(f"🔗 MCP Endpoint (local): http://localhost:{port}/mcp/")
+    print("🌐 Deployed (Render): use your Render URL + '/mcp/'")
     print(f"🔑 Auth Token: {TOKEN}")
     print("🚀 Server is ready! Keep this terminal open.")
-    await mcp.run_async("streamable-http", host="127.0.0.1", port=8086)
+    await mcp.run_async("streamable-http", host=host, port=port)
 
 if __name__ == "__main__":
     asyncio.run(main())
