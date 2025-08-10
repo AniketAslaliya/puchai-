@@ -1,0 +1,20 @@
+Traceback (most recent call last):
+  File "C:\Users\Dell\Downloads\mcp-starter-main\mcp-starter-main\mcp-bearer-token\quest_rewards_mcp.py", line 622, in <module>
+    asyncio.run(main())
+    ~~~~~~~~~~~^^^^^^^^
+  File "C:\Users\Dell\AppData\Local\Programs\Python\Python313\Lib\asyncio\runners.py", line 195, in run
+    return runner.run(main)
+           ~~~~~~~~~~^^^^^^
+  File "C:\Users\Dell\AppData\Local\Programs\Python\Python313\Lib\asyncio\runners.py", line 118, in run
+    return self._loop.run_until_complete(task)
+           ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^
+  File "C:\Users\Dell\AppData\Local\Programs\Python\Python313\Lib\asyncio\base_events.py", line 719, in run_until_complete
+    return future.result()
+           ~~~~~~~~~~~~~^^
+  File "C:\Users\Dell\Downloads\mcp-starter-main\mcp-starter-main\mcp-bearer-token\quest_rewards_mcp.py", line 611, in main
+    print("\U0001f3ae Starting Quest & Rewards MCP server on http://127.0.0.1:8086")
+    ~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Dell\AppData\Local\Programs\Python\Python313\Lib\encodings\cp1252.py", line 19, in encode
+    return codecs.charmap_encode(input,self.errors,encoding_table)[0]
+           ~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+UnicodeEncodeError: 'charmap' codec can't encode character '\U0001f3ae' in position 0: character maps to <undefined>
