@@ -329,7 +329,17 @@ ECO_REVIEW_DESCRIPTION = RichToolDescription(
 
 @mcp.tool
 async def validate() -> str:
-    return MY_NUMBER
+    return (
+        "🎉 Welcome to Eco Hero!\n\n"
+        "Turn real-world climate/social actions into XP and rewards.\n\n"
+        "Quick start:\n"
+        "1) /register_user puch_user_id=YOUR_ID name=YOUR_NAME\n"
+        "2) /list_quests puch_user_id=YOUR_ID\n"
+        "3) For manual quests: /submit_proof puch_user_id=YOUR_ID quest_id=... proof_url=<link> (or) proof_text=\"what you did\"\n"
+        "4) Reviewer: /review_submission reviewer_id=ADMIN submission_id=... approve=true\n\n"
+        "Rules: Daily cap 15 XP, Golden quests = 2x XP, Streaks earn bonus XP.\n"
+        "Have fun and make an impact! 🌍⚡"
+    )
 
 @mcp.tool
 async def health_check() -> str:
@@ -751,14 +761,7 @@ async def claim_reward(
 async def main():
     host = os.environ.get("HOST", "0.0.0.0")
     port = int(os.environ.get("PORT", "8086"))
-    print(f"🎮 Starting Quest & Rewards MCP server on http://{host}:{port}")
-    print("🌟 Initializing default quests and rewards...")
     _initialize_default_content()
-    print("✅ Default content loaded!")
-    print(f"🔗 MCP Endpoint (local): http://localhost:{port}/mcp/")
-    print("🌐 Deployed (Render): use your Render URL + '/mcp/'")
-    print(f"🔑 Auth Token: {TOKEN}")
-    print("🚀 Server is ready! Keep this terminal open.")
     await mcp.run_async("streamable-http", host=host, port=port)
 
 if __name__ == "__main__":
