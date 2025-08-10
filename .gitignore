@@ -1,0 +1,72 @@
+# OS junk
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.so
+.build/
+build/
+dist/
+.eggs/
+*.egg
+*.egg-info/
+.pip-wheel-metadata/
+.venv/
+venv/
+ENV/
+.python-eggs/
+
+# Python tooling caches
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.tox/
+.nox/
+.coverage
+.coverage.*
+.cache/
+.hypothesis/
+htmlcov/
+
+# Jupyter
+.ipynb_checkpoints/
+
+# Logs
+logs/
+*.log
+server.out.log
+server.err.log
+
+# Env files (keep examples)
+.env
+.env.*
+!**/.env.example
+mcp-bearer-token/.env
+
+# Node / JS
+node_modules/
+.npm/
+.pnpm-store/
+.yarn/
+.yarn-cache/
+.yarnrc.yml
+.turbo/
+.next/
+
+# TypeScript / build
+*.tsbuildinfo
+coverage/
+
+# IDE/editor
+.vscode/
+.idea/
+.history/
+.cursor/
+
+# Cloud/Workers
+.wrangler/
